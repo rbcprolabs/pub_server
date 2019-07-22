@@ -9,7 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 import 'package:pub_server/repository.dart';
 
-final Logger _logger = new Logger('pub_server.http_proxy_repository');
+final Logger _logger = Logger('pub_server.http_proxy_repository');
 
 /// Implements the [PackageRepository] by talking to a remote HTTP server via
 /// the pub HTTP API.
@@ -36,24 +36,28 @@ class HttpProxyRepository extends PackageRepository {
       for (var item in versions) {
         var pubspec = item['pubspec'];
         var pubspecString = convert.json.encode(pubspec);
-        yield new PackageVersion(pubspec['name'] as String,
+        yield PackageVersion(pubspec['name'] as String,
             pubspec['version'] as String, pubspecString);
       }
     }
   }
 
-  // TODO: Could be optimized, since we don't need to list all versions and can
-  // just talk to the HTTP endpoint which gives us a specific package/version
-  // combination.
   @override
-  Future<PackageVersion> lookupVersion(String package, String version) {
-    return versions(package)
-        .where((v) => v.packageName == package && v.versionString == version)
-        .toList()
-        .then((List<PackageVersion> versions) {
-      if (versions.isNotEmpty) return versions.first;
+  Future<PackageVersion> lookupVersion(String package, String version) async {
+    Uri versionUrl = baseUrl.resolve(
+        '/api/packages/${Uri.encodeComponent(package)}/versions/${Uri.encodeComponent(version)}');
+
+    http.Response response = await client.get(versionUrl);
+
+    if (response.statusCode != 200) {
       return null;
-    });
+    }
+
+    var json = convert.json.decode(response.body);
+    var pubspec = json['pubspec'];
+    var pubspecString = convert.json.encode(pubspec);
+    return PackageVersion(
+        pubspec['name'] as String, pubspec['version'] as String, pubspecString);
   }
 
   @override
@@ -77,7 +81,7 @@ class HttpProxyRepository extends PackageRepository {
     _logger.info('Downloading package $package/$version.');
 
     var url = await downloadUrl(package, version);
-    var response = await client.send(new http.Request('GET', url));
+    var response = await client.send(http.Request('GET', url));
     return response.stream;
   }
 }

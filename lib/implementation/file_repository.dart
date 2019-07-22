@@ -12,7 +12,7 @@ import 'package:path/path.dart' as p;
 import 'package:pub_server/repository.dart';
 import 'package:yaml/yaml.dart';
 
-final Logger _logger = new Logger('pub_server.file_repository');
+final Logger _logger = Logger('pub_server.file_repository');
 
 /// Implements the [PackageRepository] by storing pub packages on a file system.
 class FileRepository extends PackageRepository {
@@ -22,36 +22,37 @@ class FileRepository extends PackageRepository {
 
   @override
   Stream<PackageVersion> versions(String package) {
-    var directory = new Directory(p.join(baseDir, package));
+    var directory = Directory(p.join(baseDir, package));
     if (directory.existsSync()) {
       return directory
           .list(recursive: false)
           .where((fse) => fse is Directory)
           .map((dir) {
         var version = p.basename(dir.path);
-        var pubspecFile = new File(pubspecFilePath(package, version));
-        var tarballFile = new File(packageTarballPath(package, version));
-        if (pubspecFile.existsSync() && tarballFile.existsSync()) {
-          var pubspec = pubspecFile.readAsStringSync();
-          return new PackageVersion(package, version, pubspec);
+        var packageVersion = _getSpecificVersion(package, version);
+        if (packageVersion != null) {
+          return packageVersion;
         }
       });
     }
 
-    return new Stream.fromIterable([]);
+    return Stream.fromIterable([]);
   }
 
-  // TODO: Could be optimized by searching for the exact package/version
-  // combination instead of enumerating all.
   @override
   Future<PackageVersion> lookupVersion(String package, String version) {
-    return versions(package)
-        .where((pv) => pv.versionString == version)
-        .toList()
-        .then((List<PackageVersion> versions) {
-      if (versions.isNotEmpty) return versions.first;
+    return Future.value(_getSpecificVersion(package, version));
+  }
+
+  PackageVersion _getSpecificVersion(String package, String version) {
+    var pubspecFile = File(pubspecFilePath(package, version));
+    var tarballFile = File(packageTarballPath(package, version));
+    if (pubspecFile.existsSync() && tarballFile.existsSync()) {
+      var pubspec = pubspecFile.readAsStringSync();
+      return PackageVersion(package, version, pubspec);
+    } else {
       return null;
-    });
+    }
   }
 
   @override
@@ -60,11 +61,11 @@ class FileRepository extends PackageRepository {
   @override
   Future<PackageVersion> upload(Stream<List<int>> data) async {
     _logger.info('Start uploading package.');
-    var bb = await data.fold(new BytesBuilder(),
-        (BytesBuilder byteBuilder, d) => byteBuilder..add(d));
+    var bb = await data.fold(
+        BytesBuilder(), (BytesBuilder byteBuilder, d) => byteBuilder..add(d));
     var tarballBytes = bb.takeBytes();
-    var tarBytes = new GZipDecoder().decodeBytes(tarballBytes);
-    var archive = new TarDecoder().decodeBytes(tarBytes);
+    var tarBytes = GZipDecoder().decodeBytes(tarballBytes);
+    var archive = TarDecoder().decodeBytes(tarBytes);
     ArchiveFile pubspecArchiveFile;
     for (var file in archive.files) {
       if (file.name == 'pubspec.yaml') {
@@ -83,25 +84,25 @@ class FileRepository extends PackageRepository {
     var package = pubspec['name'] as String;
     var version = pubspec['version'] as String;
 
-    var packageVersionDir = new Directory(p.join(baseDir, package, version));
+    var packageVersionDir = Directory(p.join(baseDir, package, version));
 
     if (!packageVersionDir.existsSync()) {
       packageVersionDir.createSync(recursive: true);
     }
 
-    var pubspecFile = new File(pubspecFilePath(package, version));
+    var pubspecFile = File(pubspecFilePath(package, version));
     if (pubspecFile.existsSync()) {
-      throw new StateError('`$package` already exists at version `$version`.');
+      throw PackageAlreadyExistException(
+          '`$package` already exists at version `$version`.');
     }
 
     var pubspecContent = convert.utf8.decode(_getBytes(pubspecArchiveFile));
     pubspecFile.writeAsStringSync(pubspecContent);
-    new File(packageTarballPath(package, version))
-        .writeAsBytesSync(tarballBytes);
+    File(packageTarballPath(package, version)).writeAsBytesSync(tarballBytes);
 
     _logger.info('Uploaded new $package/$version');
 
-    return new PackageVersion(package, version, pubspecContent);
+    return PackageVersion(package, version, pubspecContent);
   }
 
   @override
@@ -109,8 +110,8 @@ class FileRepository extends PackageRepository {
 
   @override
   Future<Stream<List<int>>> download(String package, String version) async {
-    var pubspecFile = new File(pubspecFilePath(package, version));
-    var tarballFile = new File(packageTarballPath(package, version));
+    var pubspecFile = File(pubspecFilePath(package, version));
+    var tarballFile = File(packageTarballPath(package, version));
 
     if (pubspecFile.existsSync() && tarballFile.existsSync()) {
       return tarballFile.openRead();

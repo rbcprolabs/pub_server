@@ -33,7 +33,8 @@ class FileRepository extends PackageRepository {
         if (packageVersion != null) {
           return packageVersion;
         }
-      });
+        return null;
+      }).where((e) => e != null);
     }
 
     return Stream.fromIterable([]);
